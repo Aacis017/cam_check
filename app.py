@@ -1,26 +1,24 @@
 from flask import Flask, Response
+from picamera2 import Picamera2
 import cv2
-from picamera.array import PiRGBArray
-from picamera import PiCamera
 import time
 
 app = Flask(__name__)
 
 # 📷 Camera setup
-camera = PiCamera()
-camera.resolution = (640, 480)
-camera.framerate = 24
-raw_capture = PiRGBArray(camera, size=(640, 480))
-time.sleep(0.1)  # allow camera to warm up
+picam2 = Picamera2()
+camera_config = picam2.create_preview_configuration(main={"format": "XRGB8888", "size": (640, 480)})
+picam2.configure(camera_config)
+picam2.start()
+time.sleep(1)  # allow camera to warm up
 
 def generate_frames():
-    for frame in camera.capture_continuous(raw_capture, format="bgr", use_video_port=True):
-        image = frame.array
-        ret, buffer = cv2.imencode('.jpg', image)
+    while True:
+        frame = picam2.capture_array()  # NumPy array
+        ret, buffer = cv2.imencode('.jpg', frame)
         frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        raw_capture.truncate(0)
 
 @app.route('/video_feed')
 def video_feed():
