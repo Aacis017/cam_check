@@ -5,16 +5,16 @@ import time
 
 app = Flask(__name__)
 
-# 📷 Camera setup
+# Camera setup
 picam2 = Picamera2()
-camera_config = picam2.create_preview_configuration(main={"format": "XRGB8888", "size": (640, 480)})
-picam2.configure(camera_config)
+config = picam2.create_preview_configuration(main={"size": (640, 480)})
+picam2.configure(config)
 picam2.start()
-time.sleep(1)  # allow camera to warm up
+time.sleep(2)  # Pi Zero 2W needs a warm-up delay
 
 def generate_frames():
     while True:
-        frame = picam2.capture_array()  # NumPy array
+        frame = picam2.capture_array()
         ret, buffer = cv2.imencode('.jpg', frame)
         frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
@@ -38,4 +38,4 @@ def index():
     """
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
