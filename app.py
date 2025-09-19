@@ -1,4 +1,4 @@
-from flask import Flask, Response
+from flask import Flask, Response,render_template
 from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
@@ -24,7 +24,10 @@ def generate_frames():
             yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n'
         stream.seek(0)
         stream.truncate()
-
+@app.route('/')
+def index():
+    """Video streaming home page."""
+    return render_template("index.html")
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
