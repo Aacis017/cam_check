@@ -1,7 +1,6 @@
 from flask import Flask, Response, render_template
-from picamera2 import Picamera2
+from picamera2 import Picamera2, MJPEGEncoder
 from libcamera import Transform
-import io
 
 app = Flask(__name__)
 
@@ -14,13 +13,9 @@ config = picam2.create_video_configuration(
 picam2.configure(config)
 picam2.start()
 
-def generate_frames():
-    while True:
-        buf = io.BytesIO()
-        picam2.capture_file(buf, format='jpeg')
-        frame = buf.getvalue()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+# Start MJPEG encoder
+encoder = MJPEGEncoder()
+picam2.start_recording(encoder, "stream.mjpeg")
 
 @app.route('/')
 def index():
@@ -28,7 +23,7 @@ def index():
 
 @app.route('/video_feed')
 def video_feed():
-    return Response(generate_frames(),
+    return Response(open("stream.mjpeg", "rb"),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == "__main__":
