@@ -1,26 +1,44 @@
 from flask import Flask, Response, render_template
 from picamera2 import Picamera2
 from libcamera import Transform
-import io
+import cv2
+import threading
 
 app = Flask(__name__)
 
-# Init camera with 180° rotation
+# Initialize camera with 180° rotation
 picam2 = Picamera2()
-config = picam2.create_video_configuration(
+config = picam2.create_preview_configuration(
     main={"size": (640, 480)},
-    transform=Transform(hflip=1, vflip=1)  # rotate 180°
+    transform=Transform(hflip=1, vflip=1)  # 180° rotation
 )
 picam2.configure(config)
 picam2.start()
 
-def generate_frames():
+# Shared frame
+frame = None
+lock = threading.Lock()
+
+def update_frame():
+    global frame
     while True:
-        buf = io.BytesIO()
-        picam2.capture_file(buf, format='jpeg')
-        frame = buf.getvalue()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        img = picam2.capture_array()
+        ret, jpeg = cv2.imencode('.jpg', img)
+        if ret:
+            with lock:
+                frame = jpeg.tobytes()
+
+# Start background thread
+threading.Thread(target=update_frame, daemon=True).start()
+
+def generate_frames():
+    global frame
+    while True:
+        if frame:
+            with lock:
+                f = frame
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + f + b'\r\n')
 
 @app.route('/')
 def index():
