@@ -1,44 +1,27 @@
 from flask import Flask, Response, render_template
 from picamera2 import Picamera2
+from picamera2.encoders import MJPEGEncoder
+from picamera2.outputs import FileOutput
 from libcamera import Transform
-import cv2
-import threading
+import io
 
 app = Flask(__name__)
 
 # Initialize camera with 180° rotation
 picam2 = Picamera2()
-config = picam2.create_preview_configuration(
-    main={"size": (640, 480)},
-    transform=Transform(hflip=1, vflip=1)  # 180° rotation
+config = picam2.create_video_configuration(
+    main={"size": (320, 240)},  # smaller resolution for faster Pi Zero
+    transform=Transform(hflip=1, vflip=1)
 )
 picam2.configure(config)
 picam2.start()
 
-# Shared frame
-frame = None
-lock = threading.Lock()
-
-def update_frame():
-    global frame
-    while True:
-        img = picam2.capture_array()
-        ret, jpeg = cv2.imencode('.jpg', img)
-        if ret:
-            with lock:
-                frame = jpeg.tobytes()
-
-# Start background thread
-threading.Thread(target=update_frame, daemon=True).start()
-
 def generate_frames():
-    global frame
     while True:
-        if frame:
-            with lock:
-                f = frame
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + f + b'\r\n')
+        stream = io.BytesIO()
+        picam2.capture_file(stream, format="jpeg")  # fast JPEG capture
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + stream.getvalue() + b'\r\n')
 
 @app.route('/')
 def index():
@@ -50,4 +33,4 @@ def video_feed():
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    app.run(host="0.0.0.0", port=8000)
