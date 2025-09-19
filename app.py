@@ -1,38 +1,41 @@
 from flask import Flask, Response, render_template
 from picamera2 import Picamera2
-from picamera2.encoders import MJPEGEncoder
-from picamera2.outputs import CircularOutput
 from libcamera import Transform
+import io
 
 app = Flask(__name__)
 
-# Camera setup
+# Initialize Picamera2
 picam2 = Picamera2()
-config = picam2.create_preview_configuration(
-    main={"size": (640, 480)},
-    transform=Transform(hflip=1, vflip=1)  # rotate 180°
-)
-picam2.configure(config)
+preview_config = picam2.create_preview_configuration(transform=Transform(hflip=True), queue=False)
+picam2.configure(preview_config)
+picam2.start()
 
-# Use CircularOutput for streaming (no recording)
-stream = CircularOutput(capacity=1024*1024)  # 1MB buffer
-encoder = MJPEGEncoder()
-picam2.start_recording(encoder, stream)
+def generate_frames():
+    while True:
+        # Capture a frame as JPEG
+        frame = picam2.capture_array()
+        from PIL import Image
+        import numpy as np
 
-@app.route('/')
-def index():
-    return render_template("index.html")
+        # Convert to JPEG in memory
+        img = Image.fromarray(frame)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG')
+        jpeg = buf.getvalue()
+
+        # Yield as MJPEG frame
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')
 
 @app.route('/video_feed')
 def video_feed():
-    def generate():
-        last_pos = 0
-        while True:
-            data = stream.read()
-            if data:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + data + b'\r\n')
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
