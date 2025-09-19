@@ -1,43 +1,44 @@
-from flask import Flask, Response, render_template
+from flask import Flask, Response, render_template_string
 from picamera2 import Picamera2
-from picamera2.encoders import MJPEGEncoder
-from picamera2.outputs import FileOutput
-from libcamera import Transform
 import io
 
 app = Flask(__name__)
 
-# Camera setup with rotation
+# Init camera
 picam2 = Picamera2()
-config = picam2.create_video_configuration(
-    main={"size": (640, 480)},
-    transform=Transform(hflip=1, vflip=1)  # rotate 180°
-)
+config = picam2.create_video_configuration(main={"size": (640, 480)})
 picam2.configure(config)
+picam2.start()
 
-# Use an in-memory buffer
-stream = io.BytesIO()
-output = FileOutput(stream)
-encoder = MJPEGEncoder()
+# HTML Page
+html = """
+<!DOCTYPE html>
+<html>
+<head><title>Pi Camera Stream</title></head>
+<body>
+  <h1>📷 Raspberry Pi Zero 2W Camera Stream</h1>
+  <img src="{{ url_for('video_feed') }}" width="640" height="480">
+</body>
+</html>
+"""
 
-# Start streaming
-picam2.start_recording(encoder, output)
+def generate_frames():
+    while True:
+        buf = io.BytesIO()
+        # Capture JPEG directly into buffer
+        picam2.capture_file(buf, format='jpeg')
+        frame = buf.getvalue()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
 @app.route('/')
 def index():
-    return render_template("index.html")
+    return render_template_string(html)
 
 @app.route('/video_feed')
 def video_feed():
-    def generate():
-        while True:
-            data = stream.getvalue()
-            if data:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + data + b'\r\n')
-                stream.seek(0)
-                stream.truncate()
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
