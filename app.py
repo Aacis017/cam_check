@@ -1,36 +1,43 @@
-from flask import Flask, Response,render_template
+from flask import Flask, Response, render_template
 from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
+from libcamera import Transform
 import io
 
 app = Flask(__name__)
 
-# Initialize Picamera2
+# Camera setup with rotation
 picam2 = Picamera2()
-picam2.configure(picam2.create_preview_configuration(main={"size": (640, 480)}))
+config = picam2.create_video_configuration(
+    main={"size": (640, 480)},
+    transform=Transform(hflip=1, vflip=1)  # rotate 180°
+)
+picam2.configure(config)
 
-# Set up in-memory MJPEG output
+# Use an in-memory buffer
 stream = io.BytesIO()
-encoder = MJPEGEncoder()
 output = FileOutput(stream)
-picam2.start_encoder(encoder, output)
+encoder = MJPEGEncoder()
 
-def generate_frames():
-    while True:
-        stream.seek(0)
-        frame = stream.read()
-        if frame:
-            yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n'
-        stream.seek(0)
-        stream.truncate()
+# Start streaming
+picam2.start_recording(encoder, output)
+
 @app.route('/')
 def index():
-    """Video streaming home page."""
     return render_template("index.html")
+
 @app.route('/video_feed')
 def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    def generate():
+        while True:
+            data = stream.getvalue()
+            if data:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + data + b'\r\n')
+                stream.seek(0)
+                stream.truncate()
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, threaded=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000, debug=False)
