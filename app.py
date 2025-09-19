@@ -1,31 +1,22 @@
-from flask import Flask, Response, render_template_string
+from flask import Flask, Response, render_template
 from picamera2 import Picamera2
+from libcamera import Transform
 import io
 
 app = Flask(__name__)
 
-# Init camera
+# Init camera with 180° rotation
 picam2 = Picamera2()
-config = picam2.create_video_configuration(main={"size": (640, 480)})
+config = picam2.create_video_configuration(
+    main={"size": (640, 480)},
+    transform=Transform(hflip=1, vflip=1)  # rotate 180°
+)
 picam2.configure(config)
 picam2.start()
-
-# HTML Page
-html = """
-<!DOCTYPE html>
-<html>
-<head><title>Pi Camera Stream</title></head>
-<body>
-  <h1>📷 Raspberry Pi Zero 2W Camera Stream</h1>
-  <img src="{{ url_for('video_feed') }}" width="640" height="480">
-</body>
-</html>
-"""
 
 def generate_frames():
     while True:
         buf = io.BytesIO()
-        # Capture JPEG directly into buffer
         picam2.capture_file(buf, format='jpeg')
         frame = buf.getvalue()
         yield (b'--frame\r\n'
@@ -33,7 +24,7 @@ def generate_frames():
 
 @app.route('/')
 def index():
-    return render_template_string(html)
+    return render_template("index.html")
 
 @app.route('/video_feed')
 def video_feed():
