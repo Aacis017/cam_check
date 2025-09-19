@@ -1,44 +1,38 @@
-from flask import Flask, Response, render_template_string
+from flask import Flask, Response, render_template
 from picamera2 import Picamera2
-import io
+from picamera2.encoders import MJPEGEncoder
+from picamera2.outputs import CircularOutput
+from libcamera import Transform
 
 app = Flask(__name__)
 
-# Init camera
+# Camera setup
 picam2 = Picamera2()
-config = picam2.create_video_configuration(main={"size": (640, 480)})
+config = picam2.create_preview_configuration(
+    main={"size": (640, 480)},
+    transform=Transform(hflip=1, vflip=1)  # rotate 180°
+)
 picam2.configure(config)
-picam2.start()
 
-# HTML Page
-html = """
-<!DOCTYPE html>
-<html>
-<head><title>Pi Camera Stream</title></head>
-<body>
-  <h1>📷 Raspberry Pi Zero 2W Camera Stream</h1>
-  <img src="{{ url_for('video_feed') }}" width="640" height="480">
-</body>
-</html>
-"""
-
-def generate_frames():
-    while True:
-        buf = io.BytesIO()
-        # Capture JPEG directly into buffer
-        picam2.capture_file(buf, format='jpeg')
-        frame = buf.getvalue()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+# Use CircularOutput for streaming (no recording)
+stream = CircularOutput(capacity=1024*1024)  # 1MB buffer
+encoder = MJPEGEncoder()
+picam2.start_recording(encoder, stream)
 
 @app.route('/')
 def index():
-    return render_template_string(html)
+    return render_template("index.html")
 
 @app.route('/video_feed')
 def video_feed():
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    def generate():
+        last_pos = 0
+        while True:
+            data = stream.read()
+            if data:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + data + b'\r\n')
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    app.run(host="0.0.0.0", port=8000)
